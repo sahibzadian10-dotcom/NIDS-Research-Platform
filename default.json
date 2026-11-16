@@ -1,0 +1,81 @@
+{
+  "project": "A Lightweight and Explainable NIDS for Cross-Dataset Generalization and False-Positive Reduction",
+  "authors": [
+    "Sahibzada Hayam",
+    "Malak Arbaz Khan"
+  ],
+  "institution": "Abdul Wali Khan University Mardan",
+  "data_mode": "simulated",
+  "dataset_seed": 2026,
+  "n_flows": {
+    "UNSW-NB15": 60000,
+    "CIC-IDS2017": 60000
+  },
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "split": {
+    "test_folds": 4,
+    "val_folds": 5
+  },
+  "models": {
+    "random_forest": {
+      "n_estimators": 100,
+      "max_depth": 16,
+      "min_samples_leaf": 2
+    },
+    "xgboost": {
+      "max_iter": 150,
+      "learning_rate": 0.1,
+      "max_depth": 6
+    },
+    "mlp": {
+      "hidden": [
+        32,
+        16
+      ],
+      "max_iter": 60,
+      "alpha": 0.0001
+    }
+  },
+  "alert_control": {
+    "cost_fp": 1.0,
+    "cost_confusion": 1.0,
+    "cost_fn": {
+      "DoS": 5.0,
+      "Recon": 3.0,
+      "Exploit": 8.0,
+      "Botnet": 8.0
+    },
+    "fpr_cap_per_class": 0.001,
+    "grid_min": 0.05,
+    "grid_max": 0.99,
+    "grid_step": 0.01
+  },
+  "shap": {
+    "n_explain": 400,
+    "n_perm": 40,
+    "n_background": 200,
+    "top_k": 5,
+    "n_error_probe": 300
+  },
+  "replay": {
+    "max_flows": 4000,
+    "max_pkts_per_flow": 100,
+    "max_flow_dur_s": 30.0,
+    "window_s": 60.0,
+    "single_flow_samples": 300,
+    "batch_size": 256
+  },
+  "stretch": {
+    "fractions": [
+      0.01,
+      0.02,
+      0.05
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+[22:27:11] generating simulated raw datasets ...
+[22:27:13] UNSW-NB15: raw 60600 -> final 53334 flows; classes {'Benign': 46400, 'DoS': 1799, 'Recon': 1419, 'Exploit': 2996, 'Botnet': 720}
+[22:27:13] CIC-IDS2017: raw 61200 -> final 55273 flows; classes {'Benign': 48566, 'DoS': 3289, 'Recon': 1807, 'Exploit': 896, 'Botnet': 715}
+[22:27:50] replay UNSW-NB15->CIC-IDS2017: 4000 flows, 71637 pkts
+[22:27:50] seed 0 UNSW-NB15->CIC-IDS2017: GB macroF1 src=0.920 tgt=0.477 (32s)
+[22:28:19] replay CIC-IDS2017->UNSW-NB15: 4000 flows, 70812 pkts
+[22:28:19] seed 0 CIC-IDS2017->UNSW-NB15: GB macroF1 src=0.877 tgt=0.381 (29s)
+[22:28:30] seed 1 UNSW-NB15->CIC-IDS2017: GB macroF1 src=0.916 tgt=0.465 (10s)
+[22:28:41] seed 1 CIC-IDS2017->UNSW-NB15: GB macroF1 src=0.876 tgt=0.377 (11s)
+[22:28:52] seed 2 UNSW-NB15->CIC-IDS2017: GB macroF1 src=0.912 tgt=0.467 (10s)
+[22:29:03] seed 2 CIC-IDS2017->UNSW-NB15: GB macroF1 src=0.883 tgt=0.383 (11s)
+[22:29:15] seed 3 UNSW-NB15->CIC-IDS2017: GB macroF1 src=0.914 tgt=0.473 (10s)
+[22:29:26] seed 3 CIC-IDS2017->UNSW-NB15: GB macroF1 src=0.878 tgt=0.380 (11s)
+[22:29:37] seed 4 UNSW-NB15->CIC-IDS2017: GB macroF1 src=0.908 tgt=0.466 (11s)
+[22:29:47] seed 4 CIC-IDS2017->UNSW-NB15: GB macroF1 src=0.884 tgt=0.362 (10s)
