@@ -1,0 +1,7 @@
+# OPTIONAL. Installing these switches the code to the XGBoost / PyTorch branches, which were NOT run when this
+# project was built. Install them only if you have time to re-run and compare before your defense.
+xgboost>=2.0
+torch>=2.2      # CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu
+shap>=0.45
+jupyter
+streamlit

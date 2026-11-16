@@ -1,0 +1,7 @@
+# TESTED set: these are the only packages the shipped results and the dashboard need.
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+scikit-learn>=1.4
+matplotlib>=3.8
+pytest>=8
