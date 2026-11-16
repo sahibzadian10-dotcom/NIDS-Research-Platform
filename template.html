@@ -1,0 +1,633 @@
+<title>NIDS Research Platform</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one sticky control bar (tabs + direction switch) over a single column of evidence cards.
+   Colour roles: blue = same-dataset / source, orange = unseen dataset / target, red-blue diverging for SHAP sign. */
+:root{
+  --bg:#f2f5f9; --surface:#ffffff; --surface-2:#e8eef5; --ink:#0c1828; --ink-2:#44576f; --ink-3:#5b6c84;
+  --line:#d3dce8; --line-2:#e5ebf2; --accent:#2a78d6; --on-accent:#ffffff;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s7:#6250d6; --s8:#e34948;
+  --benign:#8a99ae; --pos:#e34948; --neg:#2a78d6;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --warn-bg:#fff4d6; --warn-line:#e9c25a;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b121d; --surface:#121b29; --surface-2:#1a2536; --ink:#e7edf6; --ink-2:#a8b5c8; --ink-3:#8392a8;
+    --line:#26344a; --line-2:#1c283a; --accent:#3987e5; --on-accent:#ffffff;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s7:#9085e9; --s8:#e66767;
+    --benign:#6f7f96; --pos:#e66767; --neg:#3987e5;
+    --warn-bg:#2a2410; --warn-line:#6b5718; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b121d; --surface:#121b29; --surface-2:#1a2536; --ink:#e7edf6; --ink-2:#a8b5c8; --ink-3:#8392a8;
+  --line:#26344a; --line-2:#1c283a; --accent:#3987e5; --on-accent:#ffffff;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s7:#9085e9; --s8:#e66767;
+  --benign:#6f7f96; --pos:#e66767; --neg:#3987e5;
+  --warn-bg:#2a2410; --warn-line:#6b5718; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:0 48px;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h1{font-size:24px}
+h2{font-size:18px}
+h3{font-size:14px}
+p{margin:0}
+a{color:var(--accent)}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:var(--mono)}
+.muted{color:var(--ink-2)}
+.faint{color:var(--ink-3)}
+.num{font-variant-numeric:tabular-nums}
+
+/* header */
+.top{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;padding-block:20px 12px;flex-wrap:wrap}
+.brand small{display:block;margin-top:4px;color:var(--ink-2);font-size:13px;max-width:70ch}
+.eyebrow{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px;color:var(--ink-2)}
+.iconbtn:hover{border-color:var(--ink-3)}
+.notice{display:flex;gap:12px;background:var(--warn-bg);border:1px solid var(--warn-line);border-left:4px solid var(--warn);border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:12px}
+.notice b{white-space:nowrap}
+
+/* control bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-block:8px;margin-inline:-4px;padding-inline:4px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.tabs{display:flex;gap:2px;overflow-x:auto;max-width:100%;scrollbar-width:thin}
+.tab{border:0;background:transparent;padding:8px 12px;border-radius:6px;cursor:pointer;color:var(--ink-2);font-weight:500;white-space:nowrap}
+.tab:hover{background:var(--surface-2)}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:6px 12px;cursor:pointer;color:var(--ink-2);font:500 13px var(--mono)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.ctl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+select{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:5px 8px;max-width:100%}
+
+/* layout */
+main{padding-top:16px;display:grid;gap:16px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}
+.grid-3{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card>h3+p,.card>h2+p{margin-top:4px}
+.card .sub{color:var(--ink-2);font-size:13px;margin:4px 0 12px;max-width:75ch}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.chart{width:100%;min-height:40px}
+.chart svg{display:block;max-width:100%;overflow:visible}
+.scroll{overflow-x:auto}
+
+/* svg text */
+svg .tx{font:11px var(--mono);fill:var(--ink-2)}
+svg .tl{font:12px var(--sans);fill:var(--ink)}
+svg .tv{font:500 11px var(--mono);fill:var(--ink)}
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .axis{stroke:var(--ink-3);stroke-width:1}
+svg [data-tip]{cursor:default}
+
+/* legend, chips */
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-bottom:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.chip{display:inline-flex;align-items:center;gap:6px;font:500 11px var(--mono);border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--ink-2);white-space:nowrap}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
+.chip.good::before{background:var(--good)} .chip.warn::before{background:var(--warn)} .chip.crit::before{background:var(--crit)} .chip.info::before{background:var(--accent)}
+.gid{font:600 12px var(--mono);background:var(--ink);color:var(--bg);border-radius:6px;padding:3px 8px;display:inline-block}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line-2);vertical-align:top}
+th{font:500 11px var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+td.r,th.r{text-align:right}
+td.r{font-family:var(--mono);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+details.tv{margin-top:10px;font-size:12px;color:var(--ink-2)}
+details.tv summary{cursor:pointer}
+
+/* ledger */
+.gap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:16px;padding:16px 0;border-top:1px solid var(--line)}
+.gap:first-child{border-top:0;padding-top:0}
+.gap:last-child{padding-bottom:0}
+.gap h3{margin:8px 0 4px}
+.mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px}
+.mini>div{background:var(--surface-2);border-radius:8px;padding:10px 12px;min-width:0}
+.mini .k{font:500 11px var(--mono);color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+.mini .v{font:500 20px var(--mono);margin-top:2px;font-variant-numeric:tabular-nums}
+.mini .d{font-size:12px;color:var(--ink-2);margin-top:2px}
+.link{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font-size:13px;margin-top:8px}
+.link:hover{text-decoration:underline}
+@media (max-width:760px){.gap{grid-template-columns:1fr}}
+
+/* findings */
+.find{border-top:1px solid var(--line-2);padding:8px 0}
+.find:first-child{border-top:0}
+.find summary{cursor:pointer;display:flex;gap:10px;align-items:baseline}
+.find p{margin:6px 0 0 44px;color:var(--ink-2);max-width:80ch}
+
+/* explorer */
+.sliders{display:grid;gap:10px}
+.sl{display:grid;grid-template-columns:70px 1fr 48px;gap:10px;align-items:center;font-size:13px}
+.sl output{font:500 13px var(--mono);text-align:right}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.presets{display:flex;gap:6px;flex-wrap:wrap}
+.presets button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.presets button[aria-pressed="true"]{border-color:var(--accent);color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0}
+.kpis>div{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.kpis .k{font:500 11px var(--mono);color:var(--ink-3);text-transform:uppercase}
+.kpis .v{font:500 20px var(--mono);font-variant-numeric:tabular-nums}
+
+/* tooltip */
+#tip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:var(--bg);padding:6px 9px;border-radius:6px;font-size:12px;max-width:260px;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+#tip b{font-weight:600}
+#tip .m{font-family:var(--mono)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px}
+.steps>div{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface)}
+.steps b{display:block;font-size:13px}
+.steps span{display:block;font-size:12px;color:var(--ink-2);margin-top:2px}
+.steps code,code{font:12px var(--mono);color:var(--ink-2)}
+pre{margin:0;font:12px/1.55 var(--mono);background:var(--surface-2);border-radius:8px;padding:12px;overflow-x:auto}
+ul.clean{margin:0;padding-left:18px;display:grid;gap:6px;max-width:88ch}
+footer{margin-top:24px;color:var(--ink-3);font-size:12px}
+@media (prefers-reduced-motion: no-preference){.card{transition:border-color .15s}.card:hover{border-color:var(--ink-3)}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="eyebrow">Research prototype · BS Computer Science · AWKUM</div>
+      <h1>NIDS Research Platform</h1>
+      <small id="proj"></small>
+    </div>
+    <button class="iconbtn" id="theme" type="button" aria-label="Switch colour theme">Theme</button>
+  </header>
+  <div class="notice" role="note"><b>Simulated data.</b><span id="notice"></span></div>
+  <nav class="bar" aria-label="Sections">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="ctl"><span>Direction</span><div class="seg" id="dirseg" role="group" aria-label="Transfer direction"></div></div>
+  </nav>
+  <main id="main"></main>
+  <footer id="foot"></footer>
+</div>
+<div id="tip" role="tooltip" hidden></div>
+
+<script>
+window.__R = /*__RESULTS__*/null;
+(function(){
+"use strict";
+const R = window.__R;
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const M = x => (x !== null && typeof x === 'object' && 'mean' in x) ? x.mean : x;
+const S = x => (x !== null && typeof x === 'object' && 'std' in x) ? (x.std || 0) : 0;
+const f2 = (v,d=2) => Number(v).toFixed(d);
+const pct = (v,d=1) => (v*100).toFixed(d) + '%';
+const int = v => Math.round(v).toLocaleString('en-US');
+const pm = (x,d=3,sc=1) => `${(M(x)*sc).toFixed(d)} ± ${(S(x)*sc).toFixed(d)}`;
+
+const DIRS = Object.keys(R.experiments);
+const SH = {'UNSW-NB15':'UNSW','CIC-IDS2017':'CIC'};
+const dl = k => k.split('->').map(s => SH[s]).join(' → ');
+const CLS = R.meta.classes, ATT = R.meta.attack_classes, FEATS = R.meta.features;
+const MODELS = Object.keys(R.meta.models);
+const MLAB = {random_forest:'Random Forest', xgboost:'XGBoost-role boosted trees', mlp:'Compact MLP'};
+const PLAB = {default_argmax:'Default arg-max', calibrated_argmax:'Calibrated arg-max', global_threshold:'Global threshold', per_class_cost:'Per-class (cost)', per_class_fpr_cap:'Per-class (FPR cap)'};
+const POL = R.meta.policy_order;
+const CCOL = {Benign:'var(--benign)', DoS:'var(--s2)', Recon:'var(--s3)', Exploit:'var(--s4)', Botnet:'var(--s5)'};
+const DCOL = {'UNSW-NB15':'var(--s3)', 'CIC-IDS2017':'var(--s7)'};
+const TABS = [['overview','Overview'],['data','Data'],['transfer','Transfer'],['alerts','Alert control'],['explain','Explanations'],['deploy','Deployment'],['stretch','Stretch'],['method','Method']];
+const st = {tab:'overview', dir:0, model:'xgboost', policy:'default_argmax', tpolicy:'per_class_cost', feat:'FLOW_DURATION_MS', exi:0, preset:'per_class_cost', thr:null, dsfeat:'FLOW_DURATION_MS', dsgrp:'benign'};
+const D = () => DIRS[st.dir];
+const ev = (split, pol, model=st.model, dir=D()) => R.experiments[dir][model].eval[split][pol];
+
+/* ---------- tooltip ---------- */
+const tip = $('#tip');
+function showTip(e){
+  const t = e.target.closest ? e.target.closest('[data-tip]') : null;
+  if(!t){ tip.hidden = true; return; }
+  tip.innerHTML = t.getAttribute('data-tip'); tip.hidden = false;
+  const r = tip.getBoundingClientRect(); let x = e.clientX + 14, y = e.clientY + 14;
+  if(x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+  if(y + r.height > innerHeight - 8) y = e.clientY - r.height - 14;
+  tip.style.left = Math.max(8,x) + 'px'; tip.style.top = Math.max(8,y) + 'px';
+}
+document.addEventListener('pointermove', showTip);
+document.addEventListener('pointerdown', showTip);
+document.addEventListener('scroll', () => { tip.hidden = true; }, true);
+const T = (title, rows=[]) => esc(`<b>${title}</b>` + rows.map(r => `<br><span class="m">${r}</span>`).join(''));
+
+/* ---------- chart kit (SVG strings, rendered at container width) ---------- */
+let uid = 0, pending = [];
+const ro = new ResizeObserver(es => { for(const en of es){ const el = en.target, w = Math.floor(en.contentRect.width); if(el._w !== w && el._go){ el._go(); } } });
+function C(draw, cls=''){ const id = 'c' + (uid++); pending.push({id, draw}); return `<div class="chart ${cls}" id="${id}"></div>`; }
+function mountAll(){
+  pending.forEach(p => {
+    const el = document.getElementById(p.id); if(!el) return;
+    el._go = () => { const w = Math.max(260, Math.floor(el.clientWidth)); el._w = Math.floor(el.clientWidth); el.innerHTML = p.draw(w); };
+    el._go(); ro.observe(el);
+  });
+  pending = [];
+}
+const tx = (x,y,s,o={}) => `<text x="${x}" y="${y}" class="${o.c||'tx'}" text-anchor="${o.a||'start'}">${s}</text>`;
+const nice = v => { if(v <= 0) return 1; const e = Math.pow(10, Math.floor(Math.log10(v))), m = v / e; return (m <= 1 ? 1 : m <= 1.5 ? 1.5 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * e; };
+const roundTop = (x,y,w,h,r) => { r = Math.min(r, h, w/2); return `M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`; };
+const legend = items => `<div class="legend">${items.map(i => `<span><i style="background:${i.color}"></i>${esc(i.name)}</span>`).join('')}</div>`;
+
+function barsV({w, h=250, groups, yMax, yFmt=v=>v.toFixed(1), valFmt, yTicks=4, label}){
+  valFmt = valFmt || yFmt;
+  const m = {l:46, r:8, t:18, b:48}, iw = w-m.l-m.r, ih = h-m.t-m.b, y = v => m.t + ih - (Math.max(0,v)/yMax)*ih;
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label||'bar chart')}">`;
+  for(let i=0;i<=yTicks;i++){ const v = yMax*i/yTicks; s += `<line class="grid" x1="${m.l}" x2="${w-m.r}" y1="${y(v)}" y2="${y(v)}"/>` + tx(m.l-6, y(v)+4, yFmt(v), {a:'end'}); }
+  const gw = iw/groups.length;
+  groups.forEach((g,gi) => {
+    const nb = g.bars.length, bw = Math.min(38, (gw*.74 - (nb-1)*3)/nb), tot = bw*nb + (nb-1)*3, x0 = m.l + gi*gw + (gw-tot)/2;
+    g.bars.forEach((b,bi) => {
+      const x = x0 + bi*(bw+3), top = y(b.v), hg = Math.max(0, m.t+ih-top);
+      s += `<path d="${roundTop(x,top,bw,hg,3)}" style="fill:${b.color}" data-tip="${b.tip||''}"/>`;
+      let lab = top;
+      if(b.err){ const a = y(b.v+b.err), c = y(Math.max(0,b.v-b.err)), cx = x+bw/2; s += `<path d="M${cx},${a}V${c}M${cx-4},${a}H${cx+4}M${cx-4},${c}H${cx+4}" stroke="var(--ink)" stroke-width="1.2" fill="none"/>`; lab = Math.min(lab,a); }
+      s += tx(x+bw/2, lab-5, valFmt(b.v), {a:'middle', c:'tv'});
+    });
+    const parts = String(g.label).split('\n');
+    parts.forEach((p,pi) => { s += tx(m.l + gi*gw + gw/2, h-m.b+16+pi*13, esc(p), {a:'middle', c:'tl'}); });
+  });
+  s += `<line class="axis" x1="${m.l}" x2="${w-m.r}" y1="${m.t+ih}" y2="${m.t+ih}"/></svg>`;
+  return s;
+}
+
+function barsH({w, rows, xMax, xMin=0, xFmt=v=>v.toFixed(2), valFmt, ticks=4, xLog=false, labelW, mono=true}){
+  valFmt = valFmt || xFmt;
+  const lw = labelW || Math.min(150, Math.max(90, w*.34)), m = {l:lw, r:46, t:6, b:22}, iw = w-m.l-m.r;
+  const sx = v => xLog ? iw*(Math.log10(Math.max(v,xMin))-Math.log10(xMin))/(Math.log10(xMax)-Math.log10(xMin)) : iw*(v/xMax);
+  const bh = 13, gap = 3; let yy = m.t; const parts = [];
+  rows.forEach(r => { const rh = r.vals.length*bh + (r.vals.length-1)*gap + 9; parts.push({r, y:yy, rh}); yy += rh; });
+  const h = yy + m.b;
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img">`;
+  const tk = xLog ? [0,1,2,3].map(i => xMin*Math.pow(10,i)).filter(v => v <= xMax*1.001) : Array.from({length:ticks+1}, (_,i) => xMax*i/ticks);
+  tk.forEach(v => { s += `<line class="grid" x1="${m.l+sx(v)}" x2="${m.l+sx(v)}" y1="${m.t}" y2="${yy}"/>` + tx(m.l+sx(v), h-6, xFmt(v), {a:'middle'}); });
+  parts.forEach(({r,y,rh}) => {
+    s += tx(m.l-8, y + (rh-9)/2 + 4, esc(r.label), {a:'end', c: mono ? 'tx' : 'tl'});
+    r.vals.forEach((v,i) => {
+      const by = y + i*(bh+gap), bw = Math.max(1, sx(v.v));
+      s += `<path d="M${m.l},${by}H${m.l+bw-3}Q${m.l+bw},${by} ${m.l+bw},${by+3}V${by+bh-3}Q${m.l+bw},${by+bh} ${m.l+bw-3},${by+bh}H${m.l}Z" style="fill:${v.color}" data-tip="${v.tip||''}"/>`;
+      if(v.err){ const a = m.l+sx(Math.max(0,v.v-v.err)), b = m.l+sx(v.v+v.err), cy = by+bh/2; s += `<path d="M${a},${cy}H${b}M${a},${cy-3}V${cy+3}M${b},${cy-3}V${cy+3}" stroke="var(--ink)" stroke-width="1.2" fill="none"/>`; }
+      s += tx(m.l+bw+(v.err?sx(v.v+v.err)-sx(v.v):0)+5, by+bh-2, valFmt(v.v), {c:'tv'});
+    });
+  });
+  s += `<line class="axis" x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${yy}"/></svg>`;
+  return s;
+}
+
+function lines({w, h=260, series, xd, yd, xticks, yticks=4, yFmt=v=>v.toFixed(2), xFmt=v=>v, xLog=false, diag=false, xLabel, yLabel, marks=[]}){
+  const m = {l:50, r:16, t:12, b:xLabel?44:30}, iw = w-m.l-m.r, ih = h-m.t-m.b;
+  const sx = v => m.l + (xLog ? iw*(Math.log10(Math.max(v,xd[0]))-Math.log10(xd[0]))/(Math.log10(xd[1])-Math.log10(xd[0])) : iw*(v-xd[0])/(xd[1]-xd[0]));
+  const sy = v => m.t + ih - ih*(v-yd[0])/(yd[1]-yd[0]);
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img">`;
+  for(let i=0;i<=yticks;i++){ const v = yd[0]+(yd[1]-yd[0])*i/yticks; s += `<line class="grid" x1="${m.l}" x2="${w-m.r}" y1="${sy(v)}" y2="${sy(v)}"/>` + tx(m.l-6, sy(v)+4, yFmt(v), {a:'end'}); }
+  xticks.forEach(t => { s += `<line class="grid" x1="${sx(t.v)}" x2="${sx(t.v)}" y1="${m.t}" y2="${m.t+ih}" style="stroke-dasharray:2 3"/>` + tx(sx(t.v), h-m.b+16, esc(t.label ?? xFmt(t.v)), {a:'middle'}); });
+  if(diag) s += `<line x1="${sx(xd[0])}" y1="${sy(yd[0])}" x2="${sx(xd[1])}" y2="${sy(yd[1])}" stroke="var(--ink-3)" stroke-dasharray="4 4"/>`;
+  s += `<line class="axis" x1="${m.l}" x2="${w-m.r}" y1="${m.t+ih}" y2="${m.t+ih}"/><line class="axis" x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${m.t+ih}"/>`;
+  if(xLabel) s += tx(m.l+iw/2, h-6, esc(xLabel), {a:'middle'});
+  series.forEach(se => {
+    const pts = se.pts.filter(p => p.y !== null && p.y !== undefined);
+    if(!se.noLine && pts.length > 1) s += `<path d="${pts.map((p,i) => (i?'L':'M') + sx(p.x).toFixed(1) + ',' + sy(p.y).toFixed(1)).join('')}" fill="none" stroke="${se.color}" stroke-width="2" ${se.dash?'stroke-dasharray="5 4"':''}/>`;
+    pts.forEach(p => {
+      if(p.err){ const a = sy(p.y+p.err), b = sy(Math.max(yd[0],p.y-p.err)), cx = sx(p.x); s += `<path d="M${cx},${a}V${b}M${cx-4},${a}H${cx+4}M${cx-4},${b}H${cx+4}" stroke="${se.color}" stroke-width="1.2" fill="none"/>`; }
+      s += `<circle cx="${sx(p.x)}" cy="${sy(p.y)}" r="${p.r||4}" style="fill:${p.color||se.color}" stroke="var(--surface)" stroke-width="2" data-tip="${p.tip||''}"/>`;
+      if(p.label) s += tx(sx(p.x)+7, sy(p.y)-6, esc(p.label), {c:'tx'});
+    });
+  });
+  marks.forEach(mk => { s += `<circle cx="${sx(mk.x)}" cy="${sy(mk.y)}" r="8" fill="none" stroke="var(--ink)" stroke-width="2"/>` + `<circle cx="${sx(mk.x)}" cy="${sy(mk.y)}" r="3" style="fill:var(--ink)"/>`; });
+  return s + '</svg>';
+}
+
+function heat({w, mat, rl, cl, tipFn}){
+  const n = rl.length, lw = 70, top = 40, cell = Math.min(74, (w-lw-4)/n), h = top + n*cell + 8;
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="confusion matrix">`;
+  cl.forEach((c,j) => { s += tx(lw+j*cell+cell/2, top-8, esc(c), {a:'middle', c:'tl'}); });
+  s += tx(lw+n*cell/2, 11, 'predicted', {a:'middle'});
+  rl.forEach((r,i) => {
+    const tot = mat[i].reduce((a,b) => a+b, 0) || 1;
+    s += tx(lw-8, top+i*cell+cell/2+4, esc(r), {a:'end', c:'tl'});
+    mat[i].forEach((v,j) => {
+      const fr = v/tot, x = lw+j*cell, y = top+i*cell, hi = fr > .5;
+      s += `<rect x="${x+1}" y="${y+1}" width="${cell-2}" height="${cell-2}" rx="4" style="fill:var(--accent)" fill-opacity="${(0.05+0.9*fr).toFixed(3)}" data-tip="${tipFn(i,j,v,fr)}"/>`;
+      s += `<text x="${x+cell/2}" y="${y+cell/2+4}" text-anchor="middle" class="tv" style="fill:${hi?'var(--on-accent)':'var(--ink)'}">${(fr*100).toFixed(fr<.1&&fr>0?1:0)}%</text>`;
+    });
+  });
+  s += `<text x="10" y="${top+n*cell/2}" class="tx" text-anchor="middle" transform="rotate(-90 10 ${top+n*cell/2})">true class</text>`;
+  return s + '</svg>';
+}
+
+function waterfall({w, rows}){
+  const lw = Math.min(190, w*.42), m = {l:lw, r:56, t:4}, iw = w-m.l-m.r, bh = 15, g = 6, h = m.t + rows.length*(bh+g) + 4;
+  const mx = Math.max(...rows.map(r => Math.abs(r.v)), 1e-9), zero = m.l + iw/2, sx = v => (v/mx)*(iw/2);
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="feature contributions">`;
+  rows.forEach((r,i) => {
+    const y = m.t + i*(bh+g), x = r.v >= 0 ? zero : zero + sx(r.v), bw = Math.max(1, Math.abs(sx(r.v)));
+    s += tx(lw-8, y+bh-3, esc(r.label), {a:'end'});
+    s += `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="3" style="fill:${r.v>=0?'var(--pos)':'var(--neg)'}" data-tip="${r.tip||''}"/>`;
+    s += tx(r.v >= 0 ? zero+bw+5 : zero-bw-5, y+bh-3, (r.v>=0?'+':'−') + Math.abs(r.v).toFixed(3), {a: r.v>=0?'start':'end', c:'tv'});
+  });
+  s += `<line class="axis" x1="${zero}" x2="${zero}" y1="${m.t}" y2="${h-2}"/>`;
+  return s + '</svg>';
+}
+
+function stack100({w, parts, h=34}){
+  const tot = parts.reduce((a,p) => a+p.v, 0); let x = 0, s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img">`;
+  parts.forEach(p => { const pw = w*p.v/tot; s += `<rect x="${x+1}" y="0" width="${Math.max(0,pw-2)}" height="${h}" rx="4" style="fill:${p.color}" data-tip="${p.tip||''}"/>`; if(pw > 52) s += `<text x="${x+pw/2}" y="${h/2+4}" text-anchor="middle" class="tv" style="fill:#fff">${esc(p.label||'')}</text>`; x += pw; });
+  return s + '</svg>';
+}
+
+/* ---------- small html helpers ---------- */
+const chip = (t,k='') => `<span class="chip ${k}">${esc(t)}</span>`;
+const seg = (act, opts, val) => `<div class="seg" role="group">${opts.map(([v,l]) => `<button type="button" data-act="${act}" data-v="${v}" aria-pressed="${String(v)===String(val)}">${esc(l)}</button>`).join('')}</div>`;
+const sel = (name, opts, val, label) => `<label class="ctl"><span>${label}</span><select data-sel="${name}">${opts.map(([v,l]) => `<option value="${esc(v)}" ${String(v)===String(val)?'selected':''}>${esc(l)}</option>`).join('')}</select></label>`;
+const table = (heads, rows, rcols=[]) => `<div class="scroll"><table><thead><tr>${heads.map((h,i) => `<th class="${rcols.includes(i)?'r':''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c,i) => `<td class="${rcols.includes(i)?'r':''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+const card = (title, sub, body, extra='') => `<section class="card ${extra}"><h3>${title}</h3>${sub?`<p class="sub">${sub}</p>`:''}${body}</section>`;
+const modelSel = () => sel('model', MODELS.map(m => [m, MLAB[m]]), st.model, 'Model');
+const polSel = () => sel('policy', POL.map(p => [p, PLAB[p]]), st.policy, 'Decision rule');
+
+/* =====================  OVERVIEW  ===================== */
+function gapRow(id, title, q, cells, go){
+  return `<div class="gap"><div><span class="gid">${id}</span><h3>${title}</h3><p class="muted">${q}</p><button class="link" data-go="${go}" type="button">Open details →</button></div><div class="mini">${cells}</div></div>`;
+}
+const cell = (k,v,d) => `<div><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d||''}</div></div>`;
+
+function viewOverview(){
+  const x = 'xgboost', [a,b] = DIRS;
+  const sA = ev('source_test','default_argmax',x,a), tA = ev('target_test','default_argmax',x,a), sB = ev('source_test','default_argmax',x,b), tB = ev('target_test','default_argmax',x,b);
+  const T_ = (k,p) => ev('target_test',p,x,k);
+  const ex = k => R.explain[k], rp = k => R.replay[k], stt = k => R.stretch[k];
+  const g1 = [cell(dl(a)+' macro-F1', `${f2(M(sA.macro_f1))} → ${f2(M(tA.macro_f1))}`, `same dataset → unseen dataset`),
+              cell(dl(b)+' macro-F1', `${f2(M(sB.macro_f1))} → ${f2(M(tB.macro_f1))}`, `same dataset → unseen dataset`),
+              cell(dl(a)+' alerts / 10k benign', `${int(M(sA.alerts_per_10k_benign))} → ${int(M(tA.alerts_per_10k_benign))}`, `attack detection ${pct(M(tA.detection_rate),0)} on unseen`),
+              cell(dl(b)+' alerts / 10k benign', `${int(M(sB.alerts_per_10k_benign))} → ${int(M(tB.alerts_per_10k_benign))}`, `attack detection ${pct(M(tB.detection_rate),0)} on unseen`)].join('');
+  const g2 = [a,b].map(k => cell(dl(k)+' alerts / 10k benign', `${int(M(T_(k,'default_argmax').alerts_per_10k_benign))} · ${int(M(T_(k,'global_threshold').alerts_per_10k_benign))} · ${int(M(T_(k,'per_class_cost').alerts_per_10k_benign))} · ${int(M(T_(k,'per_class_fpr_cap').alerts_per_10k_benign))}`, 'default · global · per-class cost · FPR cap')).join('')
+            + [a,b].map(k => cell(dl(k)+' FPR-cap detection', pct(M(T_(k,'per_class_fpr_cap').detection_rate),0), `vs ${pct(M(T_(k,'default_argmax').detection_rate),0)} at default`)).join('');
+  const g3 = [a,b].map(k => cell(dl(k)+' top-5 overlap', `${f2(M(ex(k).stability_topk.top_k_overlap),1)} / 5`, `Spearman ρ ${pm(ex(k).stability_topk.spearman_rho,2)}`)).join('')
+            + [a,b].map(k => cell(dl(k)+' rank shift ↔ KS', `ρ ${f2(M(ex(k).rho_rankshift_vs_ks),2)}`, `13 features: indicative only`)).join('');
+  const g4 = [a,b].map(k => cell(dl(k)+' latency p50', `${f2(rp(k).latency_per_flow_proposed.total.p50_ms)} ms`, `p95 ${f2(rp(k).latency_per_flow_proposed.total.p95_ms)} ms · single flow, 1 thread`)).join('')
+            + [a,b].map(k => cell(dl(k)+' replay throughput', `${int(rp(k).end_to_end.packets_per_s/1000)}k pkt/s`, `${int(rp(k).batch.flows_per_s)} flows/s scoring only`)).join('');
+  const g5 = [a,b].map(k => { const f0 = M(stt(k)['0.00'].macro_f1), f5 = M(stt(k)['0.05'].macro_f1); return cell(dl(k)+' macro-F1 at 5% labels', `${f2(f0)} → ${f2(f5)}`, `+${f2(f5-f0)} from labelling 5% of target train`); }).join('');
+  const finds = R.findings.map(f => `<details class="find"><summary><span class="gid">${f.gap}</span><b>${esc(f.title)}</b></summary><p>${esc(f.text)}</p></details>`).join('');
+  return `<section class="card"><div class="row spread"><h2>Four research gaps, measured</h2>${chip(`${R.meta.seeds.length} seeds · mean ± sd`,'info')}</div>
+    <p class="sub">Each row is one gap from the proposal and what this run measured for the XGBoost-role model, with thresholds learned on source-validation data only. Open any row for the chart behind it.</p>
+    ${gapRow('G1','Cross-dataset alert burden','Does the performance drop come with a measurable rise in false alarms?',g1,'transfer')}
+    ${gapRow('G2','Threshold calibration','Do thresholds learned on one dataset control false positives on another?',g2,'alerts')}
+    ${gapRow('G3','Explanation stability','Do SHAP-important features stay the same under dataset shift?',g3,'explain')}
+    ${gapRow('G4','Deployment-style evidence','What latency, throughput and alert volume does replay show?',g4,'deploy')}
+    ${gapRow('G5','Few-label adaptation (stretch)','How much does labelling 1–5% of the target help?',g5,'stretch')}
+  </section>
+  <section class="card"><h3>Findings written by the pipeline</h3><p class="sub">Generated from results.json, so the wording follows the numbers. Select a line to read it.</p>${finds}</section>`;
+}
+
+/* =====================  DATA  ===================== */
+function viewData(){
+  const names = Object.keys(R.datasets);
+  const ledger = names.map(n => {
+    const d = R.datasets[n], a = d.cleaning_audit;
+    return [['Raw rows', d.raw_profile.rows], ['Exact duplicates removed', a[1].removed], ['NaN / inf / unparsable removed', a[2].removed], ['Negative durations / sizes removed', a[3].removed], ['Labels with no common class dropped', d.rows_dropped_unmapped_labels], ['Shared-feature duplicates removed', d.shared_feature_duplicates_removed], ['Final flows', d.final_rows]];
+  });
+  const lrows = ledger[0].map((r,i) => [esc(r[0]), int(r[1]), int(ledger[1][i][1])]);
+  const share = names.map(n => { const d = R.datasets[n]; return `<div style="margin-bottom:14px"><div class="row spread"><b>${n}</b><span class="faint mono">${int(d.final_rows)} flows · ${d.n_sessions} sessions</span></div>${C(w => stack100({w, parts: CLS.map(c => ({v:d.class_counts[c], color:CCOL[c], label:`${c} ${pct(d.class_share[c],1)}`, tip:T(c,[`${int(d.class_counts[c])} flows`, pct(d.class_share[c],2)])}))}))}</div>`; }).join('');
+  const mapTbl = names.map(n => `<h3 style="margin:14px 0 6px">${n}</h3>` + table(['Raw label','Common class','Rows','Decision'], R.datasets[n].label_mapping.map(r => [`<code>${esc(r.raw_label)}</code>`, r.common_class === '(dropped)' ? chip('dropped','crit') : `<b>${esc(r.common_class)}</b>`, int(r.rows), `<span class="muted">${esc(r.decision)}</span>`]), [2])).join('');
+  const schema = table(['Feature','UNSW-NB15 column','CIC-IDS2017 column','Transform','Status'], R.schema.map(r => [`<code>${esc(r.feature)}</code>`, esc(r.unsw), esc(r.cic), `<span class="muted">${esc(r.transform)}</span>`, chip(r.status, r.status==='shared'||r.status==='derived'?'good':r.status==='approximate'?'warn':'crit')]));
+  const ksRows = FEATS.map(f => ({label:f, vals:[{v:R.shift.ks_benign[f], color:'var(--s1)', tip:T(f,['benign KS '+f2(R.shift.ks_benign[f],3)])}, {v:R.shift.ks_attack[f], color:'var(--s2)', tip:T(f,['attack KS '+f2(R.shift.ks_attack[f],3)])}]})).sort((p,q) => q.vals[0].v - p.vals[0].v);
+  const ksMax = nice(Math.max(...ksRows.flatMap(r => r.vals.map(v => v.v))) * 1.05);
+  const hf = R.shift.histograms[st.dsfeat], key = g => n => hf[`${n}|${g}`];
+  const hseries = names.map(n => ({name:n, color:DCOL[n], pts: hf[`${n}|${st.dsgrp}`].map((v,i) => ({x:(hf.edges[i]+hf.edges[i+1])/2, y:v, tip:T(n,[`log10(1+x) ${f2((hf.edges[i]+hf.edges[i+1])/2,2)}`, pct(v,1)+' of flows'])}))}));
+  const ymax = nice(Math.max(...hseries.flatMap(s => s.pts.map(p => p.y))) * 1.1);
+  const xt = [0,1,2,3,4,5].map(i => hf.edges[0] + (hf.edges[hf.edges.length-1]-hf.edges[0])*i/5);
+  const leak = names.map(n => { const l = R.leakage[n]; return [n, int(l.sizes.train), int(l.sizes.val), int(l.sizes.test), l.session_overlap_train_test+' / '+l.session_overlap_train_val+' / '+l.session_overlap_val_test, l.duplicate_overlap_train_test+' / '+l.duplicate_overlap_train_val]; });
+  return `<div class="grid">
+    ${card('Cleaning ledger','Every row removed is counted, so the final sample size can be defended.', table(['Step', names[0], names[1]], lrows, [1,2]))}
+    ${card('Class balance after label mapping','Test data keeps these natural proportions. Attacks are rare, so a small false-positive rate still produces a large alert burden.', share + legend(CLS.map(c => ({name:c, color:CCOL[c]}))))}
+  </div>
+  <div class="grid">
+    ${card('Feature drift between the datasets','Kolmogorov–Smirnov distance per shared feature (0 = identical, 1 = disjoint). Features that drift most are where a source-trained model is most likely to misread the target.', legend([{name:'Benign flows',color:'var(--s1)'},{name:'Attack flows',color:'var(--s2)'}]) + C(w => barsH({w, rows:ksRows, xMax:ksMax, xFmt:v=>v.toFixed(2), valFmt:v=>v.toFixed(2)})))}
+    ${card('Distribution overlay','Share of flows per bin on a log10(1+x) axis. A gap between the two lines is shift the model never saw in training.',
+      `<div class="row" style="margin-bottom:8px">${sel('dsfeat', Object.keys(R.shift.histograms).map(f => [f,f]), st.dsfeat, 'Feature')}${seg('dsgrp',[['benign','Benign'],['attack','Attack']], st.dsgrp)}</div>` + legend(names.map(n => ({name:n,color:DCOL[n]}))) +
+      C(w => lines({w, series:hseries, xd:[xt[0], xt[5]], yd:[0,ymax], xticks:xt.map(v => ({v, label:f2(v,1)})), yFmt:v=>pct(v,0), xLabel:'log10(1 + '+st.dsfeat+')'})))}
+  </div>
+  <div class="grid">
+    ${card('Label mapping','Attack names differ between datasets, so each is mapped to one common class set. Decisions marked approximate need review against the real files.', mapTbl)}
+    ${card('Shared-feature schema','Similar names do not guarantee the same meaning. Every column is mapped, transformed or excluded on purpose.', schema)}
+  </div>
+  ${card('Leakage checks','Splits are grouped by session so one conversation never lands in both train and test, and duplicates are removed first. Overlap counts must all be zero.', table(['Dataset','Train','Validation','Test','Session overlap (tr-te / tr-va / va-te)','Duplicate overlap (tr-te / tr-va)'], leak, [1,2,3]))}`;
+}
+
+/* =====================  TRANSFER  ===================== */
+function viewTransfer(){
+  const k = D(), pol = st.policy;
+  const groups = MODELS.map(m => { const s = ev('source_test',pol,m,k).macro_f1, t = ev('target_test',pol,m,k).macro_f1; return {label:MLAB[m].replace(' boosted trees','\nboosted trees').replace('Random Forest','Random\nForest').replace('Compact MLP','Compact\nMLP'), bars:[{v:M(s), err:S(s), color:'var(--s1)', tip:T(MLAB[m],['same dataset '+pm(s)])},{v:M(t), err:S(t), color:'var(--s2)', tip:T(MLAB[m],['unseen dataset '+pm(t)])}]}; });
+  const trows = MODELS.map(m => { const s = ev('source_test',pol,m,k), t = ev('target_test',pol,m,k); return [MLAB[m], f2(M(s.macro_f1)), f2(M(t.macro_f1)), f2(M(s.macro_f1)-M(t.macro_f1)), f2(M(t.pr_auc_attack)), f2(M(t.ece),3), pct(M(t.detection_rate),1)]; });
+  const rg = ['Benign',...ATT].map(c => { const s = ev('source_test',pol,st.model,k).recall[c], t = ev('target_test',pol,st.model,k).recall[c]; return {label:c, bars:[{v:M(s),err:S(s),color:'var(--s1)',tip:T(c+' recall',['same dataset '+pm(s)])},{v:M(t),err:S(t),color:'var(--s2)',tip:T(c+' recall',['unseen dataset '+pm(t)])}]}; });
+  const conf = ev('target_test',pol,st.model,k).confusion;
+  const asym = MODELS.map(m => { const x = R.transfer[m][pol]; return [MLAB[m], pm(x.drop_fwd), pm(x.drop_rev), pm(x.asymmetry)]; });
+  const [a,b] = DIRS;
+  return `<div class="row">${modelSel()}${polSel()}<span class="faint" style="font-size:12px">Shown for ${dl(k)}. Change direction in the bar above.</span></div>
+  <div class="grid">
+    ${card(`Macro-F1: same dataset vs unseen dataset (${dl(k)})`,'Train on the source, test on its own held-out split and on the other dataset. The drop is the cost of dataset shift.', legend([{name:'Same dataset',color:'var(--s1)'},{name:'Unseen dataset',color:'var(--s2)'}]) + C(w => barsV({w, groups, yMax:1, yFmt:v=>v.toFixed(1), valFmt:v=>v.toFixed(2), label:'macro-F1 by model'})) +
+      `<details class="tv" open><summary>Table view</summary>${table(['Model','Same','Unseen','Drop','PR-AUC (attack)','ECE','Attack detection'], trows, [1,2,3,4,5,6])}</details>`)}
+    ${card(`Per-class recall (${MLAB[st.model]})`,'Which attack types survive the move to an unseen dataset, and which collapse.', legend([{name:'Same dataset',color:'var(--s1)'},{name:'Unseen dataset',color:'var(--s2)'}]) + C(w => barsV({w, groups:rg, yMax:1, yFmt:v=>v.toFixed(1), valFmt:v=>v.toFixed(2), label:'per-class recall'})))}
+  </div>
+  <div class="grid">
+    ${card('Where the unseen-dataset errors go','Each row is a true class; cells show how its flows were classified. Mass off the diagonal is missed or mislabelled traffic.', C(w => heat({w, mat:conf, rl:CLS, cl:CLS, tipFn:(i,j,v,fr) => T(`${CLS[i]} → ${CLS[j]}`,[`${f2(v,1)} flows (mean of ${R.meta.seeds.length} seeds)`, pct(fr,1)+' of true '+CLS[i]])})))}
+    ${card('Transfer asymmetry','Which dataset you train on matters. Drop = same-dataset F1 − unseen-dataset F1 in each direction; asymmetry = |difference between the two unseen-dataset scores|.', table(['Model',`Drop ${dl(a)}`,`Drop ${dl(b)}`,'Asymmetry'], asym, [1,2,3]) + `<p class="sub" style="margin-top:10px">Decision rule: ${PLAB[pol]}. Values are mean ± sd over ${R.meta.seeds.length} seeds.</p>`)}
+  </div>`;
+}
+
+/* =====================  ALERT CONTROL  ===================== */
+let curveCache = {};
+function runEx(di, t){
+  const e = R.explorer[DIRS[di]], y = e.y, p = e.p, n = y.length, conf = new Array(25).fill(0);
+  for(let i=0;i<n;i++){ const o = i*5; let best = -1, bi = 0; for(let c=1;c<5;c++){ const v = p[o+c]/1000; if(v >= t[c-1] && v > best){ best = v; bi = c; } } conf[y[i]*5+bi]++; }
+  const rs = [], cs = []; for(let i=0;i<5;i++){ let r=0,c=0; for(let j=0;j<5;j++){ r += conf[i*5+j]; c += conf[j*5+i]; } rs.push(r); cs.push(c); }
+  let f1s = 0; const rec = [];
+  for(let i=0;i<5;i++){ const tp = conf[i*5+i], pr = cs[i] ? tp/cs[i] : 0, rc = rs[i] ? tp/rs[i] : 0; rec.push(rc); f1s += (pr+rc) ? 2*pr*rc/(pr+rc) : 0; }
+  const nb = rs[0], fp = nb - conf[0], na = n - nb, alerts = n - cs[0], tpA = alerts - fp;
+  return {conf, n, nb, fp, alerts, macro:f1s/5, per10k:1e4*fp/Math.max(nb,1), det:tpA/Math.max(na,1), prec: alerts ? tpA/alerts : 0, rec};
+}
+function curve(di){
+  if(curveCache[di]) return curveCache[di];
+  const pts = []; for(let t=0.02;t<=0.995;t+=0.01){ const r = runEx(di,[t,t,t,t]); pts.push({t:+t.toFixed(2), x:Math.max(r.per10k,1), y:r.det}); }
+  return curveCache[di] = pts;
+}
+function expOut(){
+  const r = runEx(st.dir, st.thr), ref = ev('target_test','default_argmax','xgboost',D());
+  return `<div class="kpis"><div><div class="k">Alerts / 10k benign</div><div class="v">${int(r.per10k)}</div></div><div><div class="k">Attack detection</div><div class="v">${pct(r.det,1)}</div></div><div><div class="k">Alert precision</div><div class="v">${pct(r.prec,1)}</div></div><div><div class="k">Macro-F1</div><div class="v">${f2(r.macro)}</div></div></div>
+  <p class="muted" style="font-size:13px">With these thresholds an analyst sees <b>${int(r.fp)}</b> false alerts among ${int(r.nb)} benign flows, and <b>${pct(r.det,0)}</b> of attack flows raise an alert. The default arg-max rule gives ${int(M(ref.alerts_per_10k_benign))} per 10k and ${pct(M(ref.detection_rate),0)} detection (5-seed mean).</p>
+  ${table(['Class', ...CLS], [['Recall', ...r.rec.map(v => f2(v,2))]], [1,2,3,4,5])}`;
+}
+function viewAlerts(){
+  const k = D(), m = st.model, pols = POL;
+  const nb = ev('target_test','default_argmax',m,k).n_benign;
+  const g1 = [{label:'', bars:[]}];
+  const alertBars = pols.map(p => { const x = ev('target_test',p,m,k).alerts_per_10k_benign; return {label:PLAB[p].replace(' (','\n(').replace('Default arg-max','Default\narg-max').replace('Calibrated arg-max','Calibrated\narg-max').replace('Global threshold','Global\nthreshold'), bars:[{v:M(x), err:S(x), color:'var(--s2)', tip:T(PLAB[p],[`${pm(x,0)} alerts / 10k benign`,'unseen dataset'])}]}; });
+  const aMax = nice(Math.max(...alertBars.map(g => g.bars[0].v + g.bars[0].err)) * 1.12);
+  const dm = pols.map(p => { const d = ev('target_test',p,m,k).detection_rate, f = ev('target_test',p,m,k).macro_f1; return {label:PLAB[p].replace(' (','\n(').replace('Default arg-max','Default\narg-max').replace('Calibrated arg-max','Calibrated\narg-max').replace('Global threshold','Global\nthreshold'), bars:[{v:M(d), err:S(d), color:'var(--s1)', tip:T(PLAB[p],['attack detection '+pm(d,3)])},{v:M(f), err:S(f), color:'var(--s3)', tip:T(PLAB[p],['macro-F1 '+pm(f)])}]}; });
+  const prow = pols.map(p => { const s = ev('source_test',p,m,k), t = ev('target_test',p,m,k); return [PLAB[p], int(M(s.alerts_per_10k_benign)), int(M(t.alerts_per_10k_benign)), pct(M(s.detection_rate),0), pct(M(t.detection_rate),0), f2(M(s.macro_f1)), f2(M(t.macro_f1)), f2(M(t.cost_per_flow),3)]; });
+  const thr = R.experiments[k][m].thresholds; const trow = ['global_threshold','per_class_cost','per_class_fpr_cap'].map(p => [PLAB[p], ...thr[p].map(v => f2(v,2))]);
+  if(!st.thr) st.thr = R.explorer[k].thresholds[st.preset].slice();
+  const cv = curve(st.dir);
+  const polPts = pols.map((p,i) => { const t = ev('target_test',p,'xgboost',k); return {x:Math.max(1,M(t.alerts_per_10k_benign)), y:M(t.detection_rate), color:['var(--s2)','var(--s4)','var(--s3)','var(--s7)','var(--s5)'][i], r:6, tip:T(PLAB[p],[`${int(M(t.alerts_per_10k_benign))} alerts / 10k benign`,`detection ${pct(M(t.detection_rate),1)}`]), label:''}; });
+  const rel = R.experiments[k].xgboost.reliability_target;
+  const relSer = [{name:'Raw probabilities', color:'var(--s2)', pts:rel.raw.map(b => ({x:b.pred, y:b.obs, r:Math.min(8,2.5+Math.log10(b.n+1)*1.3), tip:T('Raw '+b.bin,[`predicted ${f2(b.pred,2)}`,`observed ${f2(b.obs,2)}`,`${int(b.n)} flows`])}))}, {name:'Isotonic-calibrated', color:'var(--s1)', pts:rel.calibrated.map(b => ({x:b.pred, y:b.obs, r:Math.min(8,2.5+Math.log10(b.n+1)*1.3), tip:T('Calibrated '+b.bin,[`predicted ${f2(b.pred,2)}`,`observed ${f2(b.obs,2)}`,`${int(b.n)} flows`])}))}];
+  const t_ = ev('target_test','default_argmax','xgboost',k), tc = ev('target_test','calibrated_argmax','xgboost',k);
+  const presets = [['global_threshold','Global (learned)'],['per_class_cost','Per-class cost (learned)'],['per_class_fpr_cap','Per-class FPR cap (learned)']];
+  return `<div class="row">${modelSel()}<span class="faint" style="font-size:12px">${nb ? 'Unseen-dataset test has about '+int(M(nb))+' benign flows per seed.' : ''}</span></div>
+  <div class="grid">
+    ${card(`Alert volume by decision rule (${dl(k)})`,'On the unseen dataset. Thresholds were learned on source-validation data and applied unchanged.', C(w => barsV({w, groups:alertBars, yMax:aMax, yFmt:v=>int(v), valFmt:v=>int(v), label:'alerts per 10k benign flows'})) + `<p class="faint" style="font-size:12px;margin-top:4px">Alerts per 10,000 benign flows. Lower is better.</p>`)}
+    ${card('What each rule buys','Fewer alerts usually cost attack detection. Both are shown for the same rules.', legend([{name:'Attack detection rate',color:'var(--s1)'},{name:'Macro-F1',color:'var(--s3)'}]) + C(w => barsV({w, groups:dm, yMax:1, yFmt:v=>v.toFixed(1), valFmt:v=>v.toFixed(2), label:'detection and macro-F1'})))}
+  </div>
+  ${card('Source vs unseen dataset, every rule','The same thresholds, two datasets. The gap between the columns is the alert burden created by shift.', table(['Decision rule','Alerts/10k benign (source)','(unseen)','Detection (source)','(unseen)','Macro-F1 (source)','(unseen)','Cost / flow (unseen)'], prow, [1,2,3,4,5,6,7]))}
+  <div class="grid">
+    ${card('Threshold explorer','Drag the thresholds for the XGBoost-role model (seed 0, calibrated probabilities, unseen-dataset test). Metrics recompute on every move. A flow raises an alert if any attack-class probability passes its threshold.',
+      `<div class="presets" id="presets">${presets.map(([v,l]) => `<button type="button" data-preset="${v}" aria-pressed="${st.preset===v}">${l}</button>`).join('')}</div>
+       <div class="sliders" style="margin-top:12px">${ATT.map((c,i) => `<label class="sl"><span>${c}</span><input type="range" id="thr-${i}" min="0.01" max="0.99" step="0.01" value="${st.thr[i]}" data-thr="${i}"><output id="thv-${i}">${f2(st.thr[i],2)}</output></label>`).join('')}</div>
+       <div id="exout">${expOut()}</div>`)}
+    ${card('Operating curve','Sweeping one shared threshold traces the trade-off. Dots are the five rules at their learned settings (mean of seeds); the ringed point is the explorer.',
+      legend(pols.map((p,i) => ({name:PLAB[p], color:['var(--s2)','var(--s4)','var(--s3)','var(--s7)','var(--s5)'][i]}))) + C(w => { const r = runEx(st.dir, st.thr); return lines({w, series:[{name:'Global threshold sweep', color:'var(--s1)', pts:cv.map(p => ({x:p.x, y:p.y, r:2.2, tip:T('Threshold '+f2(p.t,2),[`${int(p.x)} alerts / 10k benign`,`detection ${pct(p.y,1)}`])}))}, {name:'Rules', color:'var(--ink)', noLine:true, pts:polPts}], marks:[{x:Math.max(1,r.per10k), y:r.det}], xd:[1,10000], yd:[0,1], xLog:true, xticks:[1,10,100,1000,10000].map(v => ({v, label:int(v)})), yFmt:v=>pct(v,0), xLabel:'alerts per 10k benign flows (log scale)'}); }, 'curve'))}
+  </div>
+  <div class="grid">
+    ${card('Calibration under shift','If probabilities were trustworthy the dots would sit on the dashed diagonal. Calibration is fitted on source validation data, so distance from the diagonal measures how well it survives the move.', legend([{name:'Raw',color:'var(--s2)'},{name:'Isotonic-calibrated',color:'var(--s1)'}]) + C(w => lines({w, series:relSer, noLine:false, xd:[0,1], yd:[0,1], diag:true, xticks:[0,.25,.5,.75,1].map(v => ({v,label:f2(v,2)})), yFmt:v=>v.toFixed(1), xLabel:'predicted attack-class confidence', yLabel:'observed'})) + `<p class="muted" style="font-size:13px;margin-top:6px">Top-label ECE on the unseen dataset: raw <b class="mono">${f2(M(t_.ece),3)}</b> → calibrated <b class="mono">${f2(M(tc.ece),3)}</b>. Dot area grows with flow count.</p>`)}
+    ${card('Learned thresholds','Order: DoS, Recon, Exploit, Botnet. Fitted on source-validation data of the seed-0 split; the target dataset is never touched.', table(['Rule','DoS','Recon','Exploit','Botnet'], trow, [1,2,3,4]) + `<p class="sub" style="margin-top:10px">When the per-class search finds no cost improvement it keeps the global value, so identical rows are a result, not a bug. The FPR-cap rule sets each class threshold to the lowest value whose benign false-alarm rate on source validation stays under ${(R.meta.config.alert_control.fpr_cap_per_class*100).toFixed(1)}%.</p>`)}
+  </div>`;
+}
+
+/* =====================  EXPLANATIONS  ===================== */
+function fv(n, v){
+  if(n === 'PROTOCOL') return ({6:'TCP',17:'UDP',1:'ICMP'})[v] || String(v);
+  if(n === 'DST_PORT_CLASS') return ['well-known port','registered port','dynamic port'][v] || String(v);
+  const u = {FLOW_DURATION_MS:'ms', IN_BYTES:'B', OUT_BYTES:'B', IN_PKTS:'pkt', OUT_PKTS:'pkt', MEAN_PKT_SIZE:'B', MEAN_IN_PKT_SIZE:'B', MEAN_OUT_PKT_SIZE:'B', BYTES_PER_SEC:'B/s', PKTS_PER_SEC:'pkt/s'}[n] || '';
+  const s = Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en-US') : Number(v).toFixed(2).replace(/\.?0+$/,'');
+  return s + (u ? ' ' + u : '');
+}
+function viewExplain(){
+  const k = D(), x = R.explain[k], [a,b] = k.split('->');
+  const order = FEATS.slice().sort((p,q) => M(x.importance_source[q]) - M(x.importance_source[p]));
+  const rows = order.map(f => ({label:f, vals:[{v:M(x.importance_source[f]), err:S(x.importance_source[f]), color:'var(--s1)', tip:T(f,['source '+pct(M(x.importance_source[f]),1)+' of attribution','rank '+f2(M(x.rank_source[f]),1)])},{v:M(x.importance_target[f]), err:S(x.importance_target[f]), color:'var(--s2)', tip:T(f,['target '+pct(M(x.importance_target[f]),1)+' of attribution','rank '+f2(M(x.rank_target[f]),1)])}]}));
+  const mx = nice(Math.max(...rows.flatMap(r => r.vals.map(v => v.v + (v.err||0)))) * 1.05);
+  const tk = x.stability_topk, t3 = x.stability_top3;
+  const sc = FEATS.map(f => ({x:M(x.ks_benign[f]), y:M(x.rank_shift[f]), r:5, label:'', f}));
+  const top = sc.slice().sort((p,q) => q.y - p.y).slice(0,4).map(p => p.f);
+  const scPts = sc.map(p => ({x:p.x, y:p.y, r:5, label: top.includes(p.f) ? p.f.replace(/_/g,' ').toLowerCase() : '', tip:T(p.f,['benign KS '+f2(p.x,3),'mean rank shift '+f2(p.y,1),'error enrichment ×'+f2(M(x.error_enrichment[p.f]),2)])}));
+  const sxm = nice(Math.max(...sc.map(p => p.x))*1.15), sym = nice(Math.max(...sc.map(p => p.y))*1.2);
+  const loc = x.local || []; if(st.exi >= loc.length) st.exi = 0; const ex = loc[st.exi];
+  let exHtml = '<p class="muted">No local examples in this run.</p>';
+  if(ex){
+    const ph = FEATS.map(f => ({f, v:ex.phi[f]})).sort((p,q) => Math.abs(q.v)-Math.abs(p.v));
+    const head = ph.slice(0,8), rest = ph.slice(8), restSum = rest.reduce((s,p) => s+p.v, 0);
+    const wrows = head.map(p => ({label:`${p.f.toLowerCase()} = ${fv(p.f, ex.features[p.f])}`, v:p.v, tip:T(p.f,[`value ${fv(p.f, ex.features[p.f])}`,`contribution ${p.v>=0?'+':''}${f2(p.v,4)}`])})).concat(rest.length ? [{label:`${rest.length} other features`, v:restSum}] : []);
+    const kind = ex.kind === 'True alert' ? 'good' : ex.kind === 'False alert' ? 'warn' : 'crit';
+    exHtml = `<div class="row" style="margin-bottom:8px">${chip(ex.kind,kind)}${chip('true '+ex.true)}${chip('predicted '+ex.predicted)}</div>
+      <p class="muted" style="font-size:13px;margin-bottom:8px">Probability of <b>${ex.explained_class}</b> is <b class="mono">${f2(ex.prob_explained_class,3)}</b>, starting from a base value of <span class="mono">${f2(ex.base_value,3)}</span>. Red bars push towards ${ex.explained_class}, blue bars push away.</p>` + C(w => waterfall({w, rows:wrows}));
+  }
+  const sx = `ρ = ${pm(x.rho_rankshift_vs_ks,2)}`;
+  return `<div class="grid">
+    ${card(`Feature importance, source vs target (${dl(k)})`,`Share of mean absolute Shapley attribution for the attack score, from the model trained on ${SH[a]}, explained on ${SH[a]} and on ${SH[b]} flows. Bars: mean ± sd over ${R.meta.seeds.length} seeds.`, legend([{name:'Source flows ('+SH[a]+')',color:'var(--s1)'},{name:'Target flows ('+SH[b]+')',color:'var(--s2)'}]) + C(w => barsH({w, rows, xMax:mx, xFmt:v=>pct(v,0), valFmt:v=>pct(v,1)})))}
+    <div style="display:grid;gap:16px;align-content:start;min-width:0">
+      ${card('Stability scores','How much of the explanation survives the shift.', table(['Measure','Value'], [['Top-5 overlap', `${pm(tk.top_k_overlap,1)} of 5`],['Top-5 Jaccard', pm(tk.jaccard,2)],['Top-3 overlap', `${pm(t3.top_k_overlap,1)} of 3`],['Spearman ρ (all 13)', pm(tk.spearman_rho,2)],['Rank shift ↔ benign KS', pm(x.rho_rankshift_vs_ks,2)],['Rank shift ↔ error enrichment', pm(x.rho_rankshift_vs_enrichment,2)]], [1]) + `<p class="sub" style="margin-top:10px">Shapley completeness error: source ${pm(x.completeness_error_source,3)}, target ${pm(x.completeness_error_target,3)} (attack-score scale about ${f2(M(x.mean_attack_score_scale),2)}). Correlations use 13 features, so treat them as indicative.</p>`)}
+    </div>
+  </div>
+  <div class="grid">
+    ${card('Do features that drift also change rank?','Each dot is a feature. Right of the plot: larger benign distribution drift. Higher up: its importance rank moved more between source and target.', C(w => lines({w, series:[{name:'features', color:'var(--s1)', noLine:true, pts:scPts}], xd:[0,sxm], yd:[0,sym], xticks:[0,.25,.5,.75,1].map(v => ({v:v*sxm, label:f2(v*sxm,2)})), yFmt:v=>v.toFixed(1), xLabel:'benign KS distance between datasets'})) + `<p class="muted" style="font-size:13px">Spearman ${sx}. Hover a dot for the feature and its error enrichment (mean |φ| on misclassified flows ÷ correct flows).</p>`)}
+    ${card('Explain one flow','Local explanation for a held-out target flow from the proposed model. These are the flows an analyst would question: true alerts, false alerts and missed attacks.', `<div class="row" style="margin-bottom:10px">${sel('exi', loc.map((e,i) => [i, `${e.kind} · ${e.true} → ${e.predicted}`]), st.exi, 'Flow')}</div>` + exHtml)}
+  </div>`;
+}
+
+/* =====================  DEPLOYMENT  ===================== */
+function viewDeploy(){
+  const k = D(), rp = R.replay[k], pmod = rp.per_model, L = rp.latency_per_flow_proposed;
+  const rows = MODELS.map(m => ({label:MLAB[m].replace(' boosted trees',' GBT'), vals:[{v:pmod[m].single_flow.p50_ms, color:'var(--s1)', tip:T(MLAB[m],['p50 '+f2(pmod[m].single_flow.p50_ms,2)+' ms','p95 '+f2(pmod[m].single_flow.p95_ms,2)+' ms','p99 '+f2(pmod[m].single_flow.p99_ms,2)+' ms'])}]}));
+  const tbl = MODELS.map(m => { const e = R.experiments[k][m]; return [MLAB[m], f2(pmod[m].single_flow.p50_ms,2), f2(pmod[m].single_flow.p95_ms,2), f2(pmod[m].single_flow.p99_ms,2), int(pmod[m].batch_flows_per_s), e.size_kb.mean >= 1024 ? f2(e.size_kb.mean/1024,1)+' MB' : f2(e.size_kb.mean,0)+' KB', f2(M(e.train_time_s),1)+' s', M(e.n_params) ? int(M(e.n_params)) : '—']; });
+  const A = rp.alerts;
+  return `<div class="row"><span class="faint" style="font-size:12px">Replay of ${dl(k)} held-out flows. ${esc(rp.exporter ? '' : '')}Measured on ${rp.environment.cpu_count} CPUs, ${rp.environment.platform.split('-')[0]}, Python ${rp.environment.python}; re-measure on your own machine before reporting.</span></div>
+  <div class="grid">
+    ${card('Single-flow latency by model','Median milliseconds to score one flow (log scale, one thread, feature build included). Smaller is better for gateways.', C(w => barsH({w, rows, xMin:.05, xMax:100, xLog:true, xFmt:v => v<1?String(v):int(v)+'', valFmt:v => f2(v,2)+' ms', labelW:Math.min(170, w*.4), mono:false})))}
+    ${card('Replay summary','Packets are synthesised from held-out flows and passed through a minimal flow exporter and the full pipeline: build features, scale, score, calibrate, apply thresholds.', `<div class="kpis"><div><div class="k">Flows replayed</div><div class="v">${int(rp.flows_replayed)}</div></div><div><div class="k">Packets</div><div class="v">${int(rp.packets_replayed)}</div></div><div><div class="k">End-to-end</div><div class="v">${int(rp.end_to_end.packets_per_s/1000)}k pkt/s</div></div><div><div class="k">Alerts</div><div class="v">${int(A.total_alerts)}</div></div><div><div class="k">Alerts / 10k benign</div><div class="v">${int(A.alerts_per_10k_benign)}</div></div><div><div class="k">Detection</div><div class="v">${pct(A.detection_rate,0)}</div></div></div>
+      ${table(['Stage','p50 ms','p95 ms','p99 ms'], [['Feature build', f2(L.feature_build.p50_ms,3), f2(L.feature_build.p95_ms,3), f2(L.feature_build.p99_ms,3)],['Model + calibration + decision', f2(L.inference_and_decision.p50_ms,2), f2(L.inference_and_decision.p95_ms,2), f2(L.inference_and_decision.p99_ms,2)],['Total per flow', f2(L.total.p50_ms,2), f2(L.total.p95_ms,2), f2(L.total.p99_ms,2)]], [1,2,3])}
+      <p class="sub" style="margin-top:10px">Micro-batched scoring (batch ${rp.batch.batch_size}) reaches ${int(rp.batch.flows_per_s)} flows/s. Exporter round-trip feature error: ${rp.feature_roundtrip_max_rel_error.toExponential(1)}. Rule used for alerts: ${PLAB[A.policy] || A.policy}.</p>`)}
+  </div>
+  ${card('Model cost, side by side','Size, speed and accuracy under the same protocol, as the proposal requires for the lightweight-model comparison.', table(['Model','p50 ms','p95 ms','p99 ms','Batch flows/s','Model size','Train time','Parameters'], tbl, [1,2,3,4,5,6,7]) + `<details class="tv"><summary>Backends used in this run</summary><ul class="clean" style="margin-top:8px">${MODELS.map(m => `<li><b>${MLAB[m]}</b>: <code>${esc(R.meta.backends[m])}</code></li>`).join('')}</ul></details>`)}`;
+}
+
+/* =====================  STRETCH  ===================== */
+function viewStretch(){
+  const fr = ['0.00','0.01','0.02','0.05'], cols = ['var(--s1)','var(--s3)'];
+  const ser = DIRS.map((k,i) => ({name:dl(k), color:cols[i], pts:fr.map(f => { const d = R.stretch[k][f]; return {x:+f*100, y:M(d.macro_f1), err:S(d.macro_f1), tip:T(dl(k)+' · '+(+f*100)+'% labelled',['macro-F1 '+pm(d.macro_f1),'alerts/10k benign '+pm(d.alerts_per_10k_benign,0),'detection '+pct(M(d.detection_rate),1)])}; })}));
+  const rows = []; DIRS.forEach(k => fr.forEach(f => { const d = R.stretch[k][f]; rows.push([dl(k), (+f*100)+'%', int(M(d.labelled_target_flows)), pm(d.macro_f1), pm(d.alerts_per_10k_benign,0), pct(M(d.detection_rate),1)]); }));
+  return card('Macro-F1 with a small labelled target budget','Stretch experiment (gap G5), kept separate from the zero-label results. Labelled flows come only from the target training partition; evaluation is on the target test partition.', legend(ser.map(s => ({name:s.name, color:s.color}))) + C(w => lines({w, h:280, series:ser, xd:[-.3,5.3], yd:[0,1], xticks:[0,1,2,5].map(v => ({v, label:v+'%'})), yFmt:v=>v.toFixed(1), xLabel:'labelled share of the target training split'})))
+    + card('Numbers','Mean ± sd over seeds.', table(['Direction','Labelled','Flows','Macro-F1','Alerts / 10k benign','Detection'], rows, [1,2,3,4,5]));
+}
+
+/* =====================  METHOD  ===================== */
+function viewMethod(){
+  const c = R.meta.config, ac = c.alert_control, env = R.meta.environment;
+  const layers = [['Data','src/data','Load, clean, de-duplicate, map labels, grouped leakage-aware splits'],['Features','feature_alignment.py','13 shared NetFlow-style features, recomputed with one formula'],['Detection','src/models','Random Forest, boosted trees, compact MLP, one protocol'],['Alert control','src/evaluation','Isotonic calibration, global and per-class thresholds'],['Explain & report','src/explainability','Shapley attributions, stability, replay, reports']];
+  const hp = Object.entries(c.models).map(([m,p]) => [MLAB[m] || m, `<code>${esc(JSON.stringify(p))}</code>`]);
+  const lim = R.limitations.map(l => `<li>${esc(l)}</li>`).join('');
+  return `${card('Pipeline','Five layers from the proposal. Data flows left to right; nothing from the target dataset reaches training, calibration or threshold selection.', `<div class="steps">${layers.map(l => `<div><b>${l[0]}</b><code>${l[1]}</code><span>${l[2]}</span></div>`).join('')}</div>`)}
+  <div class="grid">
+    ${card('Experiment configuration','Saved with every run so a number can be traced to its settings.', table(['Setting','Value'], [['Seeds', R.meta.seeds.join(', ')],['Split (grouped by session)', `test folds ${c.split.test_folds}, validation folds ${c.split.val_folds}`],['Flows per simulated dataset', `${int(c.n_flows['UNSW-NB15'])} / ${int(c.n_flows['CIC-IDS2017'])}`],['Dataset generator seed', c.dataset_seed],['Cost: false alert', ac.cost_fp],['Cost: missed attack', Object.entries(ac.cost_fn).map(([k,v]) => `${k} ${v}`).join(', ')],['Cost: wrong attack class', ac.cost_confusion],['FPR cap per class (source validation)', pct(ac.fpr_cap_per_class,2)],['Threshold grid', `${ac.grid_min}–${ac.grid_max}, step ${ac.grid_step}`],...hp]))}
+    ${card('Reproducibility record','Everything needed to repeat or audit this run.', table(['Item','Value'], [['Generated', esc(R.meta.generated_at)],['Run time', f2(R.meta.runtime_s,0)+' s'],['Python', esc(env.python)],['scikit-learn / NumPy', esc(env.sklearn)+' / '+esc(env.numpy)],['CPUs', env.cpu_count],['Data mode', esc(R.meta.data_mode)],['UNSW file hash', `<code>${esc(R.meta.dataset_file_hashes['UNSW-NB15'])}</code>`],['CIC file hash', `<code>${esc(R.meta.dataset_file_hashes['CIC-IDS2017'])}</code>`]]))}
+  </div>
+  ${card('What this run does not show','Read before quoting any number.', `<ul class="clean">${lim}</ul>`)}
+  ${card('Run it on the real datasets','Put the real CSV files in the dataset folders, switch the mode and rerun. The same code produces this dashboard from real results.', `<pre>pip install -r requirements.txt
+# copy UNSW-NB15 CSVs  -> datasets/raw/UNSW-NB15/
+# copy CIC-IDS2017 CSVs -> datasets/raw/CIC-IDS2017/
+# delete the *_SIMULATED.csv files, then set "data_mode": "real" in the config
+python run_experiments.py
+python -m src.reporting.build_all</pre>`)}`;
+}
+
+/* ---------- shell ---------- */
+const VIEWS = {overview:viewOverview, data:viewData, transfer:viewTransfer, alerts:viewAlerts, explain:viewExplain, deploy:viewDeploy, stretch:viewStretch, method:viewMethod};
+const NEEDS_DIR = new Set(['transfer','alerts','explain','deploy']);
+function render(){
+  ro.disconnect(); pending = [];
+  $('#tabs').innerHTML = TABS.map(([id,l]) => `<button class="tab" role="tab" type="button" data-tab="${id}" aria-selected="${id===st.tab}">${l}</button>`).join('');
+  $('#dirseg').innerHTML = DIRS.map((k,i) => `<button type="button" data-act="dir" data-v="${i}" aria-pressed="${i===st.dir}">${dl(k)}</button>`).join('');
+  $('#dirseg').parentElement.style.visibility = NEEDS_DIR.has(st.tab) ? 'visible' : 'hidden';
+  $('#main').innerHTML = VIEWS[st.tab]();
+  mountAll();
+  bindExplorer();
+}
+function bindExplorer(){
+  document.querySelectorAll('[data-thr]').forEach(inp => inp.addEventListener('input', () => {
+    st.thr[+inp.dataset.thr] = +inp.value; st.preset = null; $('#thv-'+inp.dataset.thr).textContent = f2(inp.value,2);
+    document.querySelectorAll('#presets button').forEach(b => b.setAttribute('aria-pressed','false'));
+    $('#exout').innerHTML = expOut(); const c = document.querySelector('.curve'); if(c && c._go) c._go();
+  }));
+}
+function go(tab){ st.tab = tab; try{ history.replaceState(null,'','#'+tab); }catch(e){ location.hash = tab; } render(); window.scrollTo({top:0}); }
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-tab],[data-go],[data-act],[data-preset]'); if(!t) return;
+  if(t.dataset.tab) return go(t.dataset.tab);
+  if(t.dataset.go) return go(t.dataset.go);
+  if(t.dataset.preset){ st.preset = t.dataset.preset; st.thr = R.explorer[D()].thresholds[st.preset].slice(); return render(); }
+  const a = t.dataset.act, v = t.dataset.v;
+  if(a === 'dir'){ st.dir = +v; st.thr = null; st.preset = 'per_class_cost'; st.exi = 0; }
+  if(a === 'dsgrp') st.dsgrp = v;
+  render();
+});
+document.addEventListener('change', e => {
+  const s = e.target.closest('[data-sel]'); if(!s) return;
+  const n = s.dataset.sel; st[n] = n === 'exi' ? +s.value : s.value; render();
+});
+$('#theme').addEventListener('click', () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark'; try{ localStorage.setItem('nids-theme', r.dataset.theme); }catch(e){}
+});
+try{ const t = localStorage.getItem('nids-theme'); if(t) document.documentElement.dataset.theme = t; }catch(e){}
+$('#proj').textContent = R.meta.title + ' · ' + R.meta.authors.join(' & ') + ' · ' + R.meta.institution;
+$('#notice').textContent = ' ' + R.meta.data_notice.replace(/^SIMULATED DATA\.\s*/, '');
+$('#foot').textContent = `Generated ${R.meta.generated_at} · ${R.meta.seeds.length} seeds · ${R.meta.data_mode} data · every figure traces to experiments/results/results.json`;
+const h = location.hash.replace('#',''); if(VIEWS[h]) st.tab = h;
+window.addEventListener('hashchange', () => { const x = location.hash.replace('#',''); if(VIEWS[x] && x !== st.tab){ st.tab = x; render(); } });
+render();
+})();
+</script>
